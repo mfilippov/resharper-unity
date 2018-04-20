@@ -27,9 +27,9 @@ namespace JetBrains.Rider.Unity.Editor
       }
     }
 
-    public static string[] GetInstalledNetFrameworks()
+    public static string[] GetInstalledNetFrameworks(OperatingSystemFamilyRider operatingSystemFamily)
     {
-      if (SystemInfoRiderPlugin.operatingSystemFamily != OperatingSystemFamilyRider.Windows)
+      if (operatingSystemFamily != OperatingSystemFamilyRider.Windows)
         throw new InvalidOperationException("GetTargetFrameworkVersionWindowsMono2 is designed for Windows only");
       
       var dir = new DirectoryInfo(@"C:\Program Files (x86)\Reference Assemblies\Microsoft\Framework\.NETFramework");
@@ -221,7 +221,7 @@ namespace JetBrains.Rider.Unity.Editor
       
       if (SystemInfoRiderPlugin.operatingSystemFamily == OperatingSystemFamilyRider.Windows)
       {
-        var detectedDotnetText = GetInstalledNetFrameworks().OrderBy(v => new Version(v)).Aggregate((a, b) => a+"; "+b);
+        var detectedDotnetText = GetInstalledNetFrameworks(SystemInfoRiderPlugin.operatingSystemFamily).OrderBy(v => new Version(v)).Aggregate((a, b) => a+"; "+b);
         EditorGUILayout.HelpBox($"Installed dotnet versions: {detectedDotnetText}", MessageType.None);
       }
 

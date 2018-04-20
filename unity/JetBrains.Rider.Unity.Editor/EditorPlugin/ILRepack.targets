@@ -3,6 +3,7 @@
     <ItemGroup>
       <InputAssemblies Include="$(OutputPath)$(AssemblyName).dll" />
       <InputAssemblies Include="$(OutputPath)Newtonsoft.Json.dll" />
+      <InputAssemblies Include="$(OutputPath)System.Threading.dll" />
       <InputAssemblies Include="../lib/*.dll" />
     </ItemGroup>
     <ItemGroup>

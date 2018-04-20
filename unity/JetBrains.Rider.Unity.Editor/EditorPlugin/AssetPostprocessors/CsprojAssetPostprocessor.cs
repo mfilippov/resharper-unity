@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Threading.Tasks;
 using System.Xml.Linq;
 using JetBrains.Rider.Unity.Editor.NonUnity;
 using JetBrains.Util;
@@ -14,6 +15,17 @@ namespace JetBrains.Rider.Unity.Editor.AssetPostprocessors
   public class CsprojAssetPostprocessor : AssetPostprocessor
   {
     private static readonly ILog ourLogger = Log.GetLog<CsprojAssetPostprocessor>();
+
+    private static OperatingSystemFamilyRider operatingSystemFamilyRider;
+    private static int scriptingRuntime;
+    private static bool OverrideTargetFrameworkVersion;
+    private static bool OverrideTargetFrameworkVersionOldMono;
+    private static string TargetFrameworkVersion;
+    private static string TargetFrameworkVersionOldMono;
+    private static bool OverrideLangVersion;
+    private static string LangVersion;
+    private static Version UnityVersion;
+    private static string applicationPath;
 
     public override int GetPostprocessOrder()
     {
@@ -33,10 +45,19 @@ namespace JetBrains.Rider.Unity.Editor.AssetPostprocessors
         var projectFiles = Directory.GetFiles(currentDirectory, "*.csproj")
           .Where(csprojFile => lines.Any(line => line.Contains("\"" + Path.GetFileName(csprojFile) + "\""))).ToArray();
 
-        foreach (var file in projectFiles)
-        {
-          UpgradeProjectFile(file);
-        }
+        operatingSystemFamilyRider = PluginSettings.SystemInfoRiderPlugin.operatingSystemFamily;
+        scriptingRuntime = UnityUtils.ScriptingRuntime;
+        OverrideTargetFrameworkVersion = PluginSettings.OverrideTargetFrameworkVersion;
+        OverrideTargetFrameworkVersionOldMono = PluginSettings.OverrideTargetFrameworkVersionOldMono;
+        TargetFrameworkVersion = PluginSettings.TargetFrameworkVersion;
+        TargetFrameworkVersionOldMono = PluginSettings.TargetFrameworkVersionOldMono;
+        OverrideLangVersion = PluginSettings.OverrideLangVersion;
+        LangVersion = PluginSettings.LangVersion;
+        UnityVersion = UnityUtils.UnityVersion;
+        applicationPath = EditorApplication.applicationPath;
+
+        Parallel.ForEach(projectFiles, (s) => UpgradeProjectFile(s));
+
       }
       catch (Exception e)
       {
@@ -68,7 +89,7 @@ namespace JetBrains.Rider.Unity.Editor.AssetPostprocessors
       SetProjectFlavour(projectContentElement, xmlns);
 
       //#i f !UNITY_2017_1_OR_NEWER // Unity 2017.1 and later has this features by itself
-      if (UnityUtils.UnityVersion < new Version(2017, 1))
+      if (UnityVersion < new Version(2017, 1))
       {
         SetManuallyDefinedComilingSettings(projectFile, projectContentElement, xmlns);
       }
@@ -190,7 +211,7 @@ namespace JetBrains.Rider.Unity.Editor.AssetPostprocessors
 
     private static void SetXCodeDllReference(string name, XNamespace xmlns, XElement projectContentElement)
     {
-      var unityAppBaseFolder = Path.GetDirectoryName(EditorApplication.applicationPath);
+      var unityAppBaseFolder = Path.GetDirectoryName(applicationPath);
 
       var xcodeDllPath = Path.Combine(unityAppBaseFolder, Path.Combine("Data/PlaybackEngines/iOSSupport", name));
       if (!File.Exists(xcodeDllPath))
@@ -247,9 +268,9 @@ namespace JetBrains.Rider.Unity.Editor.AssetPostprocessors
             if (name.Substring(name.Length - 4) != ".dll")
               name += ".dll"; // RIDER-15093
             
-            if (PluginSettings.SystemInfoRiderPlugin.operatingSystemFamily == OperatingSystemFamilyRider.Windows)
+            if (operatingSystemFamilyRider == OperatingSystemFamilyRider.Windows)
             {
-              var unityAppBaseFolder = Path.GetDirectoryName(EditorApplication.applicationPath);
+              var unityAppBaseFolder = Path.GetDirectoryName(applicationPath);
               var monoDir = new DirectoryInfo(Path.Combine(unityAppBaseFolder, "MonoBleedingEdge/lib/mono"));
               if (!monoDir.Exists)
                 monoDir = new DirectoryInfo(Path.Combine(unityAppBaseFolder, "Data/MonoBleedingEdge/lib/mono"));
@@ -296,19 +317,19 @@ namespace JetBrains.Rider.Unity.Editor.AssetPostprocessors
           {
             version = s.Substring(1);
             // for windows try to use installed dotnet framework
-            if (PluginSettings.SystemInfoRiderPlugin.operatingSystemFamily == OperatingSystemFamilyRider.Windows)
+            if (operatingSystemFamilyRider == OperatingSystemFamilyRider.Windows)
             {
-              var versions = PluginSettings.GetInstalledNetFrameworks();
+              var versions = PluginSettings.GetInstalledNetFrameworks(operatingSystemFamilyRider);
               if (versions.Any())
               {
                 var versionOrderedList = versions.OrderBy(v1 => new Version(v1));
-                var foundVersion = UnityUtils.ScriptingRuntime > 0
+                var foundVersion = scriptingRuntime > 0
                   ? versionOrderedList.Last()
                   : versionOrderedList.First();
                 // Unity may require dotnet 4.7.1, which may not be present
                 var fvIsParsed = VersionExtensions.TryParse(foundVersion, out var fv);
                 var vIsParsed = VersionExtensions.TryParse(version, out var v);
-                if (fvIsParsed && vIsParsed && (UnityUtils.ScriptingRuntime == 0 || UnityUtils.ScriptingRuntime > 0 && fv > v))
+                if (fvIsParsed && vIsParsed && (scriptingRuntime == 0 || scriptingRuntime > 0 && fv > v))
                   version = foundVersion;
                 else if (foundVersion == version)
                   ourLogger.Verbose("Found TargetFrameworkVersion {0} equals the one set-by-Unity itself {1}",
@@ -326,18 +347,18 @@ namespace JetBrains.Rider.Unity.Editor.AssetPostprocessors
             ourLogger.Log(LoggingLevel.WARN, "Fail to FixTargetFrameworkVersion", e);
           }
 
-          if (UnityUtils.ScriptingRuntime > 0)
+          if (scriptingRuntime > 0)
           {
-            if (PluginSettings.OverrideTargetFrameworkVersion)
+            if (OverrideTargetFrameworkVersion)
             {
-              return "v" + PluginSettings.TargetFrameworkVersion;
+              return "v" + TargetFrameworkVersion;
             }
           }
           else
           {
-            if (PluginSettings.OverrideTargetFrameworkVersionOldMono)
+            if (OverrideTargetFrameworkVersionOldMono)
             {
-              return "v" + PluginSettings.TargetFrameworkVersionOldMono;;
+              return "v" + TargetFrameworkVersionOldMono;;
             }
           }
 
@@ -352,9 +373,9 @@ namespace JetBrains.Rider.Unity.Editor.AssetPostprocessors
       // VSTU sets this, and I think newer versions of Unity do too (should check which version)
       SetOrUpdateProperty(projectElement, xmlns, "LangVersion", existing =>
       {
-        if (PluginSettings.OverrideLangVersion)
+        if (OverrideLangVersion)
         {
-          return PluginSettings.LangVersion;
+          return LangVersion;
         }
         
         var expected = GetExpectedLanguageLevel();
@@ -387,11 +408,14 @@ namespace JetBrains.Rider.Unity.Editor.AssetPostprocessors
       var apiCompatibilityLevel = 0;
       try
       {
-        //PlayerSettings.GetApiCompatibilityLevel(EditorUserBuildSettings.selectedBuildTargetGroup)
-        var method = typeof(PlayerSettings).GetMethod("GetApiCompatibilityLevel");
-        var parameter = typeof(EditorUserBuildSettings).GetProperty("selectedBuildTargetGroup");
-        var val = parameter.GetValue(null, null);
-        apiCompatibilityLevel = (int) method.Invoke(null, new [] {val});
+        MainThreadDispatcher.Instance.Queue(() =>
+        {
+          //PlayerSettings.GetApiCompatibilityLevel(EditorUserBuildSettings.selectedBuildTargetGroup)
+          var method = typeof(PlayerSettings).GetMethod("GetApiCompatibilityLevel");
+          var parameter = typeof(EditorUserBuildSettings).GetProperty("selectedBuildTargetGroup");
+          var val = parameter.GetValue(null, null);
+          apiCompatibilityLevel = (int) method.Invoke(null, new [] {val});  
+        });
       }
       catch (Exception ex)
       {
@@ -400,8 +424,12 @@ namespace JetBrains.Rider.Unity.Editor.AssetPostprocessors
 
       try
       {
-        var property = typeof(PlayerSettings).GetProperty("apiCompatibilityLevel");
-        apiCompatibilityLevel = (int) property.GetValue(null, null);
+
+        MainThreadDispatcher.Instance.Queue(() =>
+        {
+          var property = typeof(PlayerSettings).GetProperty("apiCompatibilityLevel");
+          apiCompatibilityLevel = (int) property.GetValue(null, null);
+        });
       }
       catch (Exception)
       {
